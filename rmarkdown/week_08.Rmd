@@ -1,0 +1,342 @@
+---
+title: "Week 8"
+author: "Jose Luis Rodriguez Gil"
+date: "01/11/2021"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(janitor)
+library(here)
+library(viridis)
+
+library(lubridate) # Part of the tidyverse, but not one of the ones that loads with tidyverse. needs to be loaded on its own
+
+```
+
+```{r source my theme function}
+
+source(here("functions", "theme_pepe_full.R"))
+
+```
+
+# Before we start -  The data
+
+For this class we will use some mock data made to represent the typical outcomes of a standard sampling campaign
+
+In this case we have several files:
+
+- A file containing information about the sampling sites. There are a total of nine sites, distributed among three treatments (low, medium and high)
+
+- A sample logbook, where all the information about the field-specific details for each collected samples are stored (e.g. date, time, who collected it)
+
+- Four samples of analytical results for 5 compounds. These come as separate files, one for each batch of analysis carried out by our analytical laboratory
+
+```{r loading data}
+
+sites_original <- read_csv(here("data", "sites.csv"))
+sample_logbook_original <- read_csv(here("data", "sample_logbook.csv"))
+
+batch_1 <- read_csv(here("data", "Batch_1.csv"))
+batch_2 <- read_csv(here("data", "Batch_2.csv"))
+batch_3 <- read_csv(here("data", "Batch_3.csv"))
+batch_4 <- read_csv(here("data", "Batch_4.csv"))
+
+```
+
+# Part 1 - Working with dates
+
+## R basic data types for dates and times
+
+### Dates
+
+Base r as the `as.Date()` function to format data into a date format.
+
+If it is in nice ISO format (year/month/day) everything works alright
+
+```{r}
+
+as.Date("2018/03/23")
+
+
+```
+
+But what if the data is in any other "shape" (e.g. day/month/year)
+
+```{r}
+
+as.Date("23/03/2018")
+
+```
+
+That dosn't quite work. You can specify what format it is in.
+
+**NOTE**: Those expressions are standarized in computer science, here is a quick [resource](https://www.ibm.com/docs/en/cmofm/9.0.0?topic=SSEPCD_9.0.0/com.ibm.ondemand.mp.doc/arsa0257.htm) with some of the most comon ones.
+
+```{r}
+
+as.Date("23/03/2018", format='%d/%m/%Y')
+
+```
+
+### dates and times (timestamps)
+
+But what if we need date **AND** time. R has two specific formats for that:
+
+ - `POSIXct`: Stores seconds since UNIX epoch (00:00:00 UTC on 1 January 1970),
+ - `POSIXlt`: Stores a list of day, month, year, hour, minute, second, etc.
+ 
+The most common one is `POSIXct`. You can use `as.POSIXct()` to turn a string into a date-time object. You still have to specify what format it comes in.
+ 
+```{r}
+
+as.POSIXct("080406 10:11", format = "%y%m%d %H:%M")
+
+```
+
+fortunately, the **Tidyverse** has nice tools to help us handle dates.
+
+
+## Dates and times with {lubridate}
+
+
+```{r}
+
+ymd("2018-march-23") 
+
+```
+
+```{r}
+
+dmy_hm("23-03-2018 15:32")
+
+```
+
+
+### Math with dates - Issues
+
+Modified from the [lubridate cheat sheet](https://github.com/rstudio/cheatsheets/blob/master/lubridate.pdf)
+
+```{r echo=FALSE, out.width="100%", fig.align='center'}
+
+url <- "https://www.gannett-cdn.com/presto/2019/10/16/USAT/133601da-4194-4d1d-b055-64e5a8517de7-GettyImages-1044312456.jpg"
+
+knitr::include_graphics(`url`)
+
+```
+
+image by the [Cincinnati Enquirer](https://www.cincinnati.com/story/news/2020/10/16/time-change-daylight-saving-time-fall-back/3677972001/)
+
+```{r math with dates - create some reference date_times}
+
+nor <- ymd_hms("2018-01-01 01:30:00",tz="Canada/Central")
+gap <- ymd_hms("2018-03-11 01:30:00",tz="Canada/Central") # spring forward
+lap <- ymd_hms("2018-11-04 00:30:00",tz="Canada/Central") # fall back
+
+leap <- ymd("2019-03-01") #leap year
+
+```
+
+
+**Periods** track changes in clock times, which ignore time line irregularities. **Keep this in mind, be careful**
+
+```{r}
+
+nor + minutes(90)
+gap + minutes(90)
+lap + minutes(90)
+
+leap + years(1)
+
+```
+
+You can *solve* this *problem* by uding **durations** instead of **periods**
+
+```{r}
+
+nor + dminutes(90)
+gap + dminutes(90)
+lap + dminutes(90)
+
+leap + dyears(1)
+
+```
+
+
+## Lets prep our data files
+
+Let's start with the sample logbok, here the days, month year, hours and minutes are in their own separate figures. We need to concatenate them and then make them into a date_time.
+
+```{r}
+
+sample_logbook <- sample_logbook_original %>% 
+  mutate(sampling_date = str_c(year, month, day, sep = "/")) %>%                 # this concatenates year, month and day with a "/" in between
+  mutate(sampling_time = str_c(hh, mm, sep = ":")) %>%                           # this concatenates hours and minutes  with a ":" in between
+  mutate(samp_date_time = str_c(sampling_date, sampling_time, sep = " ")) %>%    # this concatenates the date and the time with a space in between
+  mutate(samp_date_time = ymd_hm(samp_date_time, tz = "Canada/Central")) %>%     # this is where we turn that character string into a date-time
+  mutate(sampling_date = ymd(sampling_date)) %>%                                 # we make the date alone into a date, in case we need it later
+  mutate(sampling_time = hm(sampling_time))                                      # we make the time alone into a time, in case we need it later
+
+print(sample_logbook)
+
+```
+
+We will work with the chemistry data later, as it is easier to deal with once we have combined the different batches into one.
+
+
+## filtering dates
+
+
+Imagine we come back from the field and realize that one of or pieces of field equipment was giving us erroneous data for some time and we didn't notice. Now we want to exclude the samples collected during that period.
+
+first we need to create the interval of time we want to exclude
+
+```{r}
+
+equipment_malfunction <- interval(ymd_hm("2018/02/15 15:30"), ymd_hm("2018/03/20 17:45"))
+
+print(equipment_malfunction)
+
+```
+
+Lets take a look to see how many samples we are talking about. for this we can use the handy `%within%`
+
+```{r}
+
+sample_logbook %>% 
+  filter(sampling_date %within% equipment_malfunction)
+
+```
+
+Now we filter out this interval
+
+```{r}
+
+sample_logbook %>% 
+  filter(!sampling_date %within% equipment_malfunction)  # the "!" implies that we want to select the OPOSITE
+
+```
+
+# simplyfiying timstamps
+
+```{r}
+
+ymd_hm("2019-05-25 18:23") %>% 
+  date()
+
+```
+
+
+### One more thing...
+
+```{r}
+
+Sys.Date()
+
+```
+```{r}
+
+Sys.time()
+
+```
+ 
+```{r}
+
+str_c("This report was created on", Sys.time(), sep = " ")
+
+```
+
+
+
+# Part 2 - Data wrangling - binding and joining tables
+
+First thing, we want to take the 4 batches of analytical results we got from the lab and bind them into one single *results* table.
+
+We can use the function `bind_rows()` to paste the 4 batches one on top of another.
+
+
+```{r}
+
+bind_rows(batch_1, batch_2, batch_3, batch_4)
+
+```
+
+if you want to keep track of which file each data point came from, you can tell `bind_rows()` to create a new column with `.id = "column_name`.
+
+If you provide the dataframes as a list, it will use that info to populate that column. Make sure to use `tibble::lst()` instead of `base::list()` to ensure that the names of the dataframes are stored in the list
+
+```{r}
+
+results <- bind_rows(tibble::lst(batch_1, batch_2, batch_3, batch_4), 
+                     .id = "batch")
+
+print(results)
+
+```
+
+Now that we have all the chemical data in one single object, lets put **Sites**, **Sample logbook**, and **Results** all together. 
+
+We are going to use **joins** for that. In particular `left_join()`
+
+
+```{r}
+
+combined_data <- left_join(sample_logbook, sites_original, by = "site_id") %>% 
+  left_join(results, by = "sample_id")
+  
+print(combined_data)
+  
+```
+
+```{r}
+
+combined_data_long <- combined_data %>% 
+ pivot_longer(cols = c(compound_1, compound_2, compound_3, compound_4, compound_5), 
+               names_to = "compound", 
+               values_to = "concentration") %>% 
+  mutate(treatment = factor(treatment, levels = c("Low", "Medium", "High")))
+
+print(combined_data_long)
+
+```
+
+```{r grid_plot}
+
+combined_data_long %>% 
+ggplot() +
+  
+  facet_grid(rows = vars(compound), cols = vars(treatment)) + # similar to facet_wrap() but you can provide   two variables (to make a grid). You need to reference the variables using vars(). Annoying!
+  
+  geom_point(aes(x = samp_date_time, y = concentration, colour = compound)) +
+  geom_smooth(aes(x = samp_date_time, y = concentration, colour = compound, fill = compound)) +
+  
+  scale_x_datetime(date_breaks  = "3 months", date_labels = "%b") +
+  
+  scale_colour_viridis(discrete = TRUE) +
+  scale_fill_viridis(discrete = TRUE) +
+
+
+  theme_pepe_full() +
+  theme(strip.text = element_text(size = 7)) +
+  
+  labs(x = NULL,                                                               # We can remove an axis title by specifying "NULL"
+       y = "Concentration (mg/L)",
+       caption = str_c("This figure was created on", Sys.time(), sep = " "))    # Aplying what we just learned to create a figure caption
+
+
+
+
+```
+
+
+
+
+
