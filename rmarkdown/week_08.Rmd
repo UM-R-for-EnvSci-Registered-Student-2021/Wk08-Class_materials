@@ -64,7 +64,9 @@ If it is in nice ISO format (year/month/day) everything works alright
 
 ```{r}
 
-as.Date("2018/03/23")
+test_date <- as.Date("2018/03/23")
+
+str(test_date)
 
 
 ```
